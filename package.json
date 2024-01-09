@@ -91,5 +91,8 @@
   },
   "publishConfig": {
     "tag": "latest"
+  },
+  "peerDependencies": {
+    "lodash": "^4.00.00"
   }
 }

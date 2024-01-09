@@ -57,6 +57,7 @@ import {
   collectSubfields as _collectSubfields,
 } from './collectFields';
 import { getArgumentValues, getVariableValues } from './values';
+import _ from "lodash"
 
 /**
  * A memoized collection of relevant subfields with regard to the return
@@ -665,7 +666,7 @@ function completeValue(
 
   // If field type is List, complete each item in the list with the inner type
   if (isListType(returnType)) {
-    return completeListValue(
+    return completeListValueChunked(
       exeContext,
       returnType,
       fieldNodes,
@@ -1062,4 +1063,157 @@ export function getFieldDef(
     return TypeNameMetaFieldDef;
   }
   return parentType.getFields()[fieldName];
+}
+
+const completeValueOrError = (
+  exeContext: ExecutionContext,
+  itemType: GraphQLOutputType,
+  fieldNodes: ReadonlyArray<FieldNode>,
+  info: GraphQLResolveInfo,
+  itemPath: Path,
+  item:unknown
+) => {
+  try {
+    let completedItem;
+    if (item instanceof Promise) {
+      // eslint-disable-next-line no-loop-func
+      completedItem = item.then(resolved =>
+        completeValue(
+          exeContext,
+          itemType,
+          fieldNodes,
+          info,
+          itemPath,
+          resolved
+        )
+      );
+    } else {
+      completedItem = completeValue(
+        exeContext,
+        itemType,
+        fieldNodes,
+        info,
+        itemPath,
+        item
+      );
+    }
+
+    if (completedItem instanceof Promise) {
+      // Note: we don't rely on a `catch` method, but we do expect "thenable"
+      // to take a second callback for the error case.
+      // eslint-disable-next-line no-loop-func
+      return completedItem.then(undefined, rawError => {
+        const error = locatedError(rawError, fieldNodes, pathToArray(itemPath));
+        return handleFieldError(error, itemType, exeContext);
+      });
+    }
+    return completedItem;
+  } catch (rawError) {
+    const error = locatedError(rawError, fieldNodes, pathToArray(itemPath));
+    return handleFieldError(error, itemType, exeContext);
+  }
+};
+
+const CHUNKIFY_THRESHOLD_MILLIS = 50;
+
+
+const chunkifyPromises = (
+  alreadyCompletedFirstChunkItems:unknown[],
+  allItems:unknown,
+  callback:any // takes (chunk, chunkIdx)
+) => {
+  const chunkSize = alreadyCompletedFirstChunkItems.length;
+  const startIdx = chunkSize;
+  //@ts-ignore
+  const returnPromise = _.chunk(allItems.slice(startIdx), chunkSize).reduce(
+    //@ts-ignore
+    (prevPromise, chunk, chunkIdx) =>
+      prevPromise.then(
+        //@ts-ignore
+        async reductionResults =>
+          await Promise.all(
+            //@ts-ignore
+            await new Promise(resolve =>
+              //@ts-ignore
+              setImmediate(() =>
+                resolve(reductionResults.concat(callback(chunk, chunkIdx)))
+              )
+            )
+          )
+      ),
+    Promise.all(alreadyCompletedFirstChunkItems)
+  );
+  return returnPromise;
+};
+
+function completeListValueChunked(
+  exeContext: ExecutionContext,
+  returnType: GraphQLList<GraphQLOutputType>,
+  fieldNodes: ReadonlyArray<FieldNode>,
+  info: GraphQLResolveInfo,
+  path: Path,
+  result: unknown,
+): PromiseOrValue<ReadonlyArray<unknown>>  {
+  if (!isIterableObject(result)) {
+    throw new GraphQLError(
+      `Expected Iterable, but did not find one for field "${info.parentType.name}.${info.fieldName}".`
+    );
+  }
+  const itemType = returnType.ofType;
+  const completedResults = [];
+  let containsPromise = false;
+  let itemPath;
+  const t0 = new Date().getTime();
+  let breakIdx;
+  //@ts-ignore
+  for (const [idx, item] of result.entries()) {
+    // Check every Nth item (e.g. 50th) if the elapsed time is larger than X ms.
+    // If so, break and promise-setImmediate-chain chunks
+    const elapsed = new Date().getTime() - t0;
+    if (idx % 20 === 0 && idx > 0 && elapsed > CHUNKIFY_THRESHOLD_MILLIS) {
+      breakIdx = idx; // Used as chunk size
+      break;
+    }
+    itemPath = addPath(path, idx, undefined);
+    const completedItem = completeValueOrError(
+      exeContext,
+      itemType,
+      fieldNodes,
+      info,
+      itemPath,
+      item
+    );
+    if (!containsPromise && completedItem instanceof Promise) {
+      containsPromise = true;
+    }
+    completedResults.push(completedItem);
+  }
+  if (breakIdx) {
+    const startIdx = breakIdx;
+    const chunkSize = breakIdx;
+    //@ts-ignore
+    const completeChunkCallback = (chunk, chunkIdx) => {
+      return [...chunk.entries()].map(([idx, item]) => {
+        const pathIdx = startIdx + chunkIdx * chunkSize + idx;
+        itemPath = addPath(path, pathIdx, undefined);
+        const completedValue = completeValueOrError(
+          exeContext,
+          itemType,
+          fieldNodes,
+          info,
+          itemPath,
+          item
+        );
+        return completedValue;
+      });
+    };
+    const returnPromise = chunkifyPromises(
+      completedResults,
+      result,
+      completeChunkCallback
+    );
+    return returnPromise;
+  } else {
+    return containsPromise ? Promise.all(completedResults) : completedResults;
+  }
 }
