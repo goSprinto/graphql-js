@@ -57,7 +57,7 @@ import {
   collectSubfields as _collectSubfields,
 } from './collectFields';
 import { getArgumentValues, getVariableValues } from './values';
-import _ from "lodash"
+import * as _ from 'lodash';
 
 /**
  * A memoized collection of relevant subfields with regard to the return
@@ -666,14 +666,23 @@ function completeValue(
 
   // If field type is List, complete each item in the list with the inner type
   if (isListType(returnType)) {
-    return completeListValueChunked(
-      exeContext,
-      returnType,
-      fieldNodes,
-      info,
-      path,
-      result,
-    );
+    return exeContext.operation.name?.value === 'IntrospectionQuery'
+      ? completeListValue(
+          exeContext,
+          returnType,
+          fieldNodes,
+          info,
+          path,
+          result,
+        )
+      : completeListValueChunked(
+          exeContext,
+          returnType,
+          fieldNodes,
+          info,
+          path,
+          result,
+        );
   }
 
   // If field type is a leaf type, Scalar or Enum, serialize to a valid value,
@@ -1071,21 +1080,21 @@ const completeValueOrError = (
   fieldNodes: ReadonlyArray<FieldNode>,
   info: GraphQLResolveInfo,
   itemPath: Path,
-  item:unknown
+  item: unknown,
 ) => {
   try {
     let completedItem;
     if (item instanceof Promise) {
       // eslint-disable-next-line no-loop-func
-      completedItem = item.then(resolved =>
+      completedItem = item.then((resolved) =>
         completeValue(
           exeContext,
           itemType,
           fieldNodes,
           info,
           itemPath,
-          resolved
-        )
+          resolved,
+        ),
       );
     } else {
       completedItem = completeValue(
@@ -1094,7 +1103,7 @@ const completeValueOrError = (
         fieldNodes,
         info,
         itemPath,
-        item
+        item,
       );
     }
 
@@ -1102,7 +1111,7 @@ const completeValueOrError = (
       // Note: we don't rely on a `catch` method, but we do expect "thenable"
       // to take a second callback for the error case.
       // eslint-disable-next-line no-loop-func
-      return completedItem.then(undefined, rawError => {
+      return completedItem.then(undefined, (rawError) => {
         const error = locatedError(rawError, fieldNodes, pathToArray(itemPath));
         return handleFieldError(error, itemType, exeContext);
       });
@@ -1116,32 +1125,27 @@ const completeValueOrError = (
 
 const CHUNKIFY_THRESHOLD_MILLIS = 50;
 
-
 const chunkifyPromises = (
-  alreadyCompletedFirstChunkItems:unknown[],
-  allItems:unknown,
-  callback:any // takes (chunk, chunkIdx)
+  alreadyCompletedFirstChunkItems: unknown[],
+  allItems: unknown[],
+  callback: any, // takes (chunk, chunkIdx)
 ) => {
   const chunkSize = alreadyCompletedFirstChunkItems.length;
   const startIdx = chunkSize;
-  //@ts-ignore
+
   const returnPromise = _.chunk(allItems.slice(startIdx), chunkSize).reduce(
-    //@ts-ignore
     (prevPromise, chunk, chunkIdx) =>
       prevPromise.then(
-        //@ts-ignore
-        async reductionResults =>
+        async (reductionResults) =>
           await Promise.all(
-            //@ts-ignore
-            await new Promise(resolve =>
-              //@ts-ignore
+            await new Promise((resolve) =>
               setImmediate(() =>
-                resolve(reductionResults.concat(callback(chunk, chunkIdx)))
-              )
-            )
-          )
+                resolve(reductionResults.concat(callback(chunk, chunkIdx))),
+              ),
+            ),
+          ),
       ),
-    Promise.all(alreadyCompletedFirstChunkItems)
+    Promise.all(alreadyCompletedFirstChunkItems),
   );
   return returnPromise;
 };
@@ -1153,10 +1157,10 @@ function completeListValueChunked(
   info: GraphQLResolveInfo,
   path: Path,
   result: unknown,
-): PromiseOrValue<ReadonlyArray<unknown>>  {
+): PromiseOrValue<ReadonlyArray<unknown>> {
   if (!isIterableObject(result)) {
     throw new GraphQLError(
-      `Expected Iterable, but did not find one for field "${info.parentType.name}.${info.fieldName}".`
+      `Expected Iterable, but did not find one for field "${info.parentType.name}.${info.fieldName}".`,
     );
   }
   const itemType = returnType.ofType;
@@ -1181,7 +1185,7 @@ function completeListValueChunked(
       fieldNodes,
       info,
       itemPath,
-      item
+      item,
     );
     if (!containsPromise && completedItem instanceof Promise) {
       containsPromise = true;
@@ -1202,15 +1206,17 @@ function completeListValueChunked(
           fieldNodes,
           info,
           itemPath,
-          item
+          item,
         );
         return completedValue;
       });
     };
+
     const returnPromise = chunkifyPromises(
       completedResults,
+      //@ts-ignore
       result,
-      completeChunkCallback
+      completeChunkCallback,
     );
     return returnPromise;
   } else {
