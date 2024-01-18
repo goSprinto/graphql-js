@@ -1169,8 +1169,9 @@ function completeListValueChunked(
   let itemPath;
   const t0 = new Date().getTime();
   let breakIdx;
-  //@ts-ignore
-  for (const [idx, item] of result.entries()) {
+  const resultArray = Array.from(result);
+
+  for (const [idx, item] of resultArray.entries()) {
     // Check every Nth item (e.g. 50th) if the elapsed time is larger than X ms.
     // If so, break and promise-setImmediate-chain chunks
     const elapsed = new Date().getTime() - t0;
@@ -1195,8 +1196,8 @@ function completeListValueChunked(
   if (breakIdx) {
     const startIdx = breakIdx;
     const chunkSize = breakIdx;
-    //@ts-ignore
-    const completeChunkCallback = (chunk, chunkIdx) => {
+
+    const completeChunkCallback = (chunk: unknown[], chunkIdx: number) => {
       return [...chunk.entries()].map(([idx, item]) => {
         const pathIdx = startIdx + chunkIdx * chunkSize + idx;
         itemPath = addPath(path, pathIdx, undefined);
@@ -1214,8 +1215,7 @@ function completeListValueChunked(
 
     const returnPromise = chunkifyPromises(
       completedResults,
-      //@ts-ignore
-      result,
+      resultArray,
       completeChunkCallback,
     );
     return returnPromise;
