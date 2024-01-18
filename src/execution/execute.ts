@@ -1126,8 +1126,8 @@ const completeValueOrError = (
 const CHUNKIFY_THRESHOLD_MILLIS = 50;
 
 const chunkifyPromises = (
-  alreadyCompletedFirstChunkItems: unknown[],
-  allItems: unknown[],
+  alreadyCompletedFirstChunkItems: Array<unknown>,
+  allItems: Array<unknown>,
   callback: any, // takes (chunk, chunkIdx)
 ) => {
   const chunkSize = alreadyCompletedFirstChunkItems.length;
@@ -1197,7 +1197,7 @@ function completeListValueChunked(
     const startIdx = breakIdx;
     const chunkSize = breakIdx;
 
-    const completeChunkCallback = (chunk: unknown[], chunkIdx: number) => {
+    const completeChunkCallback = (chunk: Array<unknown>, chunkIdx: number) => {
       return [...chunk.entries()].map(([idx, item]) => {
         const pathIdx = startIdx + chunkIdx * chunkSize + idx;
         itemPath = addPath(path, pathIdx, undefined);
