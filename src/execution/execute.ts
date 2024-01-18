@@ -52,12 +52,13 @@ import {
 import type { GraphQLSchema } from '../type/schema';
 import { assertValidSchema } from '../type/validate';
 
+// eslint-disable-next-line import/*
+import * as _ from 'lodash';
 import {
-  collectFields,
   collectSubfields as _collectSubfields,
+  collectFields,
 } from './collectFields';
 import { getArgumentValues, getVariableValues } from './values';
-import * as _ from 'lodash';
 
 /**
  * A memoized collection of relevant subfields with regard to the return
